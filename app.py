@@ -1,8 +1,18 @@
 from dash import Dash, html, dcc, Output, Input
 import dash_bootstrap_components as dbc
+from dotenv import load_dotenv
 import plotly.graph_objects as go
 import pandas as pd
 import yfinance as yf
+import os
+
+
+load_dotenv()
+
+REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", 60000))
+DEFAULT_PERIOD   = os.getenv("DEFAULT_PERIOD", "3mo")
+DEFAULT_TICKER   = os.getenv("DEFAULT_TICKER", "CL=F")
+DEBUG            = os.getenv("DEBUG", "True") == "True"
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = Dash(__name__, external_stylesheets=[
@@ -376,4 +386,4 @@ def update_chart(ticker, period):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=8050, debug=DEBUG)
