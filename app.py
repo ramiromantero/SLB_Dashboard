@@ -1,8 +1,18 @@
 from dash import Dash, html, dcc, Output, Input
 import dash_bootstrap_components as dbc
+from dotenv import load_dotenv
 import plotly.graph_objects as go
 import pandas as pd
 import yfinance as yf
+import os
+
+
+load_dotenv()
+
+REFRESH_INTERVAL = int(os.getenv("REFRESH_INTERVAL", 60000))
+DEFAULT_PERIOD   = os.getenv("DEFAULT_PERIOD", "3mo")
+DEFAULT_TICKER   = os.getenv("DEFAULT_TICKER", "CL=F")
+DEBUG            = os.getenv("DEBUG", "True") == "True"
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = Dash(__name__, external_stylesheets=[
@@ -120,7 +130,7 @@ def build_chart(ticker: str, period: str):
         return go.Figure()
 
 # ── Helper: card de precio ─────────────────────────────────────────────────────
-def price_card(title: str, price_id: str, change_id: str):
+def price_card(title: str, price_id: str, change_id: str, spark_id):
     return dbc.Col(html.Div([
         html.P(title, style={
             "fontFamily": FONT_MONO,
@@ -143,6 +153,11 @@ def price_card(title: str, price_id: str, change_id: str):
             "fontSize":   "12px",
             "color":      "black",  # Se actualizará dinámicamente
         }),
+        dcc.Graph(
+            id=spark_id,
+            config={"displayModeBar": False},
+            style={"height": "60px", "margin": "8px -8px -12px -8px"}
+        )
     ], style=CARD_STYLE), width=12, md=6, xl=True, className="mb-3")
 
 # ── Layout ─────────────────────────────────────────────────────────────────────
@@ -187,11 +202,11 @@ app.layout = html.Div(style={"background": COLORS["bg"], "minHeight": "100vh"}, 
 
         # Cards de precios
         dbc.Row([
-            price_card("WTI Crude Oil",     "price-wti",  "change-wti"),
-            price_card("Brent Crude",       "price-brent","change-brent"),
-            price_card("Natural Gas",       "price-ng",   "change-ng"),
-            price_card("SLB Corp",          "price-slb",  "change-slb"),
-            price_card("ExxonMobil",        "price-xom",  "change-xom"),
+            price_card("WTI Crude Oil",     "price-wti",  "change-wti", "spark-wti"),
+            price_card("Brent Crude",       "price-brent","change-brent", "spark-brent"),
+            price_card("Natural Gas",       "price-ng",   "change-ng", "spark-ng"),
+            price_card("SLB Corp",          "price-slb",  "change-slb", "spark-slb"),
+            price_card("ExxonMobil",        "price-xom",  "change-xom", "spark-xom"),
         ], className="mb-4"),
 
         # Gráfico histórico
@@ -272,6 +287,38 @@ app.layout = html.Div(style={"background": COLORS["bg"], "minHeight": "100vh"}, 
     dcc.Interval(id="interval", interval=10000, n_intervals=0),
 ])
 
+# ── Helper: sparkline ──────────────────────────────────────────────────────────
+def build_sparkline(ticker: str, change: float):
+    try:
+        hist = yf.Ticker(ticker).history(period="7d")
+        if hist.empty:
+            return go.Figure()
+
+        color = COLORS["green"] if change >= 0 else COLORS["red"]
+        fill  = "rgba(34,197,94,0.1)" if change >= 0 else "rgba(239,68,68,0.1)"
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=hist.index, y=hist["Close"],
+            mode="lines",
+            line=dict(color=color, width=1.5),
+            fill="tozeroy",
+            fillcolor=fill,
+            hoverinfo="skip"
+        ))
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            showlegend=False,
+        )
+        return fig
+    except Exception:
+        return go.Figure()
+
+
 # ── Callbacks ──────────────────────────────────────────────────────────────────
 
 # Cards de precios
@@ -309,6 +356,22 @@ def update_cards(n):
     now = datetime.now().strftime("Updated %H:%M:%S")
     return (*results, now)
 
+# Sparklines
+@app.callback(
+    Output("spark-wti",   "figure"),
+    Output("spark-brent", "figure"),
+    Output("spark-ng",    "figure"),
+    Output("spark-slb",   "figure"),
+    Output("spark-xom",   "figure"),
+    Input("interval", "n_intervals")
+)
+def update_sparklines(n):
+    tickers = ["CL=F", "BZ=F", "NG=F", "SLB", "XOM"]
+    figures = []
+    for ticker in tickers:
+        _, change = get_price(ticker)
+        figures.append(build_sparkline(ticker, change or 0))
+    return figures
 
 # Gráfico histórico
 @app.callback(
@@ -323,4 +386,4 @@ def update_chart(ticker, period):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=8050, debug=DEBUG)
